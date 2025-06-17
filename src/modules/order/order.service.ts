@@ -26,15 +26,40 @@ import { Request, Response } from 'express';
 import { GeminiService } from '../gen_ai/gemini.service';
 import HttpStatusCode from 'src/constants/http_status_code';
 import { EmailService } from '../email/email.service';
+import { Subject } from 'src/common/interfaces/subject.interface';
+import { Observer } from 'src/common/interfaces/observer.interface';
 
 @Injectable()
-export class OrderService {
+export class OrderService implements Subject {
+  observers: Observer[] = [];
+  
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly geminiService: GeminiService,
     private readonly emailService: EmailService,
   ) {}
+
+  attach(observer: Observer): void {
+    const isExist = this.observers.includes(observer);
+    if (!isExist) {
+      this.observers.push(observer);
+    }
+  }
+
+  detach(observer: Observer): void {
+    const observerIndex = this.observers.indexOf(observer);
+    if (observerIndex !== -1) {
+      this.observers.splice(observerIndex, 1);
+    }
+  }
+
+  notify(): void {
+    for (const observer of this.observers) {
+      observer.update();
+    }
+  }
+
   async createOrder(session: TUserSession, dto: CreateOrderDto) {
     const productIds = dto.items.map((item) => item.productId);
     const products = await this.prisma.products.findMany({
@@ -389,10 +414,15 @@ export class OrderService {
         },
       });
     }
-    return await this.prisma.orders.update({
+    const updatedOrder = await this.prisma.orders.update({
       where: { id },
       data: { status: dto.status },
     });
+    
+    // Notify observers about status change
+    this.notify();
+    
+    return updatedOrder;
   }
   async createReview(
     session: TUserSession,

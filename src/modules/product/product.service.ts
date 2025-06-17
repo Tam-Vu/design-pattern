@@ -8,10 +8,34 @@ import { uploadFilesFromFirebase } from 'src/libs/firebase/upload';
 import { EUploadFolder } from 'src/constants/constant';
 import { deleteFilesFromFirebase } from 'src/libs/firebase/delete';
 import { ProductQuery } from './query/product.query';
+import { Subject } from 'src/common/interfaces/subject.interface';
+import { Observer } from 'src/common/interfaces/observer.interface';
 
 @Injectable()
-export class ProductsService {
+export class ProductsService implements Subject {
+  observers: Observer[] = [];
+  
   constructor(private readonly prismaService: PrismaService) {}
+
+  attach(observer: Observer): void {
+    const isExist = this.observers.includes(observer);
+    if (!isExist) {
+      this.observers.push(observer);
+    }
+  }
+
+  detach(observer: Observer): void {
+    const observerIndex = this.observers.indexOf(observer);
+    if (observerIndex !== -1) {
+      this.observers.splice(observerIndex, 1);
+    }
+  }
+
+  notify(): void {
+    for (const observer of this.observers) {
+      observer.update();
+    }
+  }
 
   async getAllProducts(productQuery: ProductQuery, categoryStatus?: boolean) {
     const AND = [
@@ -229,7 +253,7 @@ export class ProductsService {
         imageUrls = uploadImagesData.urls;
       }
       const { categoryId, image_url, ...dtoExcept } = dto;
-      return await this.prismaService.$transaction(async (tx) => {
+      const result = await this.prismaService.$transaction(async (tx) => {
         const updatedProduct = await tx.products.update({
           where: { id },
           data: {
@@ -242,8 +266,15 @@ export class ProductsService {
               : existingProduct.image_url,
           },
         });
+        
+        // If price was updated, notify observers
+        if (dto.price !== undefined) {
+          this.notify();
+        }
+        
         return updatedProduct;
       });
+      return result;
     } catch (error) {
       console.log('Error:', error.message);
       if (imageUrls.length && !imageUrls.length)
