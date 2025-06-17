@@ -8,10 +8,31 @@ import { uploadFilesFromFirebase } from 'src/libs/firebase/upload';
 import { EUploadFolder } from 'src/constants/constant';
 import { deleteFilesFromFirebase } from 'src/libs/firebase/delete';
 import { ProductQuery } from './query/product.query';
+import { ProductComponent } from './models/product-component.interface';
+import { SimpleProduct } from './models/simple-product';
+import { CompositeProduct } from './models/composite-product';
 
 @Injectable()
 export class ProductsService {
   constructor(private readonly prismaService: PrismaService) {}
+
+  // Create a simple product using the composite pattern
+  createSimpleProduct(price: number, description: string): ProductComponent {
+    return new SimpleProduct(price, description);
+  }
+
+  // Create a composite product
+  createCompositeProduct(): CompositeProduct {
+    return new CompositeProduct();
+  }
+
+  // Convert database product to ProductComponent
+  convertToProductComponent(product: any): ProductComponent {
+    return new SimpleProduct(
+      parseFloat(product.price),
+      product.description || product.title,
+    );
+  }
 
   async getAllProducts(productQuery: ProductQuery, categoryStatus?: boolean) {
     const AND = [
