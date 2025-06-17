@@ -26,6 +26,12 @@ import { Request, Response } from 'express';
 import { GeminiService } from '../gen_ai/gemini.service';
 import HttpStatusCode from 'src/constants/http_status_code';
 import { EmailService } from '../email/email.service';
+import { OrderModel } from './models/order.model';
+import { PendingState } from './states/pending-state';
+import { ShippedState } from './states/shipped-state';
+import { DeliveredState } from './states/delivered-state';
+import { CancelledState } from './states/cancelled-state';
+import { RejectedState } from './states/rejected-state';
 
 @Injectable()
 export class OrderService {
@@ -281,6 +287,29 @@ export class OrderService {
     ) {
       throw new BadRequestException('Order already cancelled or rejected');
     }
+
+    // Using State Pattern for state transitions
+    const orderModel = new OrderModel(id, order.status, this.prisma);
+    
+    // Set the new state based on requested status
+    switch(dto.status) {
+      case ORDER_STATUS.PROCESSING:
+        orderModel.setState(new PendingState());
+        break;
+      case ORDER_STATUS.DELIVERED:
+        orderModel.setState(new ShippedState());
+        break;
+      case ORDER_STATUS.SUCCESS:
+        orderModel.setState(new DeliveredState());
+        break;
+      case ORDER_STATUS.CANCELLED:
+        orderModel.setState(new CancelledState());
+        break;
+      case ORDER_STATUS.REJECT:
+        orderModel.setState(new RejectedState());
+        break;
+    }
+
     if (dto.status === ORDER_STATUS.REJECT) {
       try {
         return await this.prisma.$transaction(async (tx) => {
@@ -389,9 +418,11 @@ export class OrderService {
         },
       });
     }
-    return await this.prisma.orders.update({
+    
+    // Update the order status and return the updated order
+    await orderModel.updateStatus(dto.status);
+    return await this.prisma.orders.findUnique({
       where: { id },
-      data: { status: dto.status },
     });
   }
   async createReview(
