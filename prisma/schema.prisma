@@ -115,13 +115,15 @@ model Carts {
 }
 
 model CartItems {
-  id         Int      @id @default(autoincrement())
-  cart_id    Int
-  cart       Carts    @relation(fields: [cart_id], references: [id])
-  product_id String
-  product    Products @relation(fields: [product_id], references: [id])
-  quantity   Int
-  created_at DateTime @default(now())
+  id               Int      @id @default(autoincrement())
+  cart_id          Int
+  cart             Carts    @relation(fields: [cart_id], references: [id])
+  product_id       String
+  product          Products @relation(fields: [product_id], references: [id])
+  quantity         Int
+  gift_wrap        Boolean  @default(false)
+  express_shipping Boolean  @default(false)
+  created_at       DateTime @default(now())
 }
 
 model Reviews {

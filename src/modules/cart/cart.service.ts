@@ -6,6 +6,10 @@ import { AddToCartDto } from './dto/add_to_cart.dto';
 import { UpdateCartDto } from './dto/update_cart.dto';
 import { CheckOutDto } from './dto/check_out.dto';
 import { OrderService } from '../order/order.service';
+import { ConcreteCartItem } from './decorator/concrete-cart-item';
+import { GiftWrapDecorator } from './decorator/gift-wrap-decorator';
+import { ExpressShippingDecorator } from './decorator/express-shipping-decorator';
+import { CartItem } from './decorator/cart-item.interface';
 
 @Injectable()
 export class CartsService {
@@ -42,13 +46,39 @@ export class CartsService {
       take: getCartDto.take,
       orderBy: { [getCartDto.sortBy]: getCartDto.order },
     });
+
+    // Enhance cart items with decorator pattern
+    const enhancedCartItems = cartItems.map((item) => {
+      // Get decorations from the database
+      const hasGiftWrap = Boolean(item.gift_wrap);
+      const hasExpressShipping = Boolean(item.express_shipping);
+
+      // Apply decorators
+      let cartItem: CartItem = new ConcreteCartItem(item);
+
+      if (hasGiftWrap) {
+        cartItem = new GiftWrapDecorator(cartItem);
+      }
+
+      if (hasExpressShipping) {
+        cartItem = new ExpressShippingDecorator(cartItem);
+      }
+
+      return {
+        ...item,
+        calculatedPrice: cartItem.getPrice(),
+        enhancedDescription: cartItem.getDescription(),
+      };
+    });
+
     const itemCount = await this.prisma.cartItems.count({
       where: { cart_id: cart.id },
     });
-    return { cartItems, itemCount };
+
+    return { cartItems: enhancedCartItems, itemCount };
   }
   async addToCart(session: TUserSession, addToCartDto: AddToCartDto) {
-    const { productId, quantity } = addToCartDto;
+    const { productId, quantity, giftWrap, expressShipping } = addToCartDto;
     const cart = await this.prisma.carts.findFirst({
       where: { user_id: session.id },
     });
@@ -61,17 +91,38 @@ export class CartsService {
     if (!product) {
       throw new BadRequestException('Product not found');
     }
+
+    // Calculate the enhanced price using decorators
+    let cartItem: CartItem = new ConcreteCartItem({
+      product,
+      product_id: productId,
+      quantity,
+      cart_id: cart.id,
+      id: '', // Not relevant for price calculation
+    } as any);
+
+    if (giftWrap) {
+      cartItem = new GiftWrapDecorator(cartItem);
+    }
+
+    if (expressShipping) {
+      cartItem = new ExpressShippingDecorator(cartItem);
+    }
+
     const existingCartItem = await this.prisma.cartItems.findFirst({
       where: {
         product_id: productId,
         cart_id: cart.id,
       },
     });
+
     if (existingCartItem) {
       await this.prisma.cartItems.update({
         where: { id: existingCartItem.id },
         data: {
           quantity: existingCartItem.quantity + quantity,
+          gift_wrap: giftWrap,
+          express_shipping: expressShipping,
         },
       });
     } else {
@@ -80,9 +131,12 @@ export class CartsService {
           product_id: productId,
           cart_id: cart.id,
           quantity: quantity,
+          gift_wrap: giftWrap,
+          express_shipping: expressShipping,
         },
       });
     }
+
     return this.prisma.carts.findFirst({
       where: { user_id: session.id },
       include: { CartItems: { include: { product: true } } },
@@ -123,7 +177,7 @@ export class CartsService {
     }
   }
   async updateCartItem(session: TUserSession, dto: UpdateCartDto) {
-    const { productId, quantity } = dto;
+    const { productId, quantity, giftWrap, expressShipping } = dto;
     const product = await this.prisma.products.findUnique({
       where: {
         id: productId,
@@ -144,6 +198,7 @@ export class CartsService {
     if (!cartItem) {
       throw new BadRequestException('Cart item not found');
     }
+
     return await this.prisma.$transaction(async (tx) => {
       await tx.cartItems.update({
         where: {
@@ -151,6 +206,8 @@ export class CartsService {
         },
         data: {
           quantity: quantity,
+          gift_wrap: giftWrap,
+          express_shipping: expressShipping,
         },
       });
       const updateCart = await tx.carts.findUnique({
