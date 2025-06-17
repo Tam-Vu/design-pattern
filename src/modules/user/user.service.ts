@@ -9,10 +9,14 @@ import { EUploadFolder, USER_IMAGE_URL } from 'src/constants/constant';
 import { uploadFilesFromFirebase } from 'src/libs/firebase/upload';
 import { hashedPassword } from '../auth/services/signUp/hash-password';
 import { UpdateUserProfileByAdmin } from './dto/update_user_profile_by_admin.dto';
+import { UserFactory } from './factories/user.factory';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly userFactory: UserFactory,
+  ) {}
   async createNewUser(body: CreateUserDto) {
     if (await isEmailExist(body.email)) {
       throw new BadRequestException('Email already exists', {
@@ -20,15 +24,20 @@ export class UsersService {
       });
     }
     const hashPassword = await hashedPassword(body.password);
+    // Use factory to create appropriate user type
+    const userObj = this.userFactory.createUser(body.role, {
+      email: body.email,
+      password: hashPassword,
+      fullName: body.fullName,
+      phone: body.phone,
+      birthday: new Date(body.birthday),
+      gender: body.gender,
+      avatarUrl: USER_IMAGE_URL,
+    });
+    const userData = userObj.getPrismaCreateData();
     const newUser = await this.prisma.users.create({
       data: {
-        email: body.email,
-        password: hashPassword,
-        full_name: body.fullName,
-        role: body.role,
-        birthday: new Date(body.birthday),
-        gender: body.gender,
-        avatar_url: USER_IMAGE_URL,
+        ...userData,
         verification: {
           create: {
             verified_code: hashPassword,
