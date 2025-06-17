@@ -26,6 +26,14 @@ import { Request, Response } from 'express';
 import { GeminiService } from '../gen_ai/gemini.service';
 import HttpStatusCode from 'src/constants/http_status_code';
 import { EmailService } from '../email/email.service';
+import { 
+  CommandInvoker, 
+  OrderReceiver, 
+  PlaceOrderCommand, 
+  CancelOrderCommand,
+  UpdateOrderStatusCommand,
+  CreateReviewCommand
+} from './commands';
 
 @Injectable()
 export class OrderService {
@@ -34,158 +42,27 @@ export class OrderService {
     private readonly config: ConfigService,
     private readonly geminiService: GeminiService,
     private readonly emailService: EmailService,
+    private readonly commandInvoker: CommandInvoker,
+    private readonly orderReceiver: OrderReceiver,
   ) {}
+  
   async createOrder(session: TUserSession, dto: CreateOrderDto) {
-    const productIds = dto.items.map((item) => item.productId);
-    const products = await this.prisma.products.findMany({
-      where: { id: { in: productIds } },
-    });
-    const cart = await this.prisma.carts.findFirstOrThrow({
-      where: { user_id: session.id },
-    });
-    const cartItems = await this.prisma.cartItems.findMany({
-      where: { cart_id: cart.id, product_id: { in: productIds } },
-    });
-    const cartItemIds = cartItems.map((item) => item.id);
-    if (products.length !== productIds.length) {
-      throw new NotFoundException('Some products are not found');
-    }
-    const user = await this.prisma.users.findUnique({
-      where: { id: session.id },
-    });
-    const productPriceMap = new Map(
-      products.map((product) => [
-        product.id,
-        {
-          price: product.price,
-          finalPrice: product.final_price ?? product.price,
-        },
-      ]),
-    );
     try {
-      return await this.prisma.$transaction(
-        async (tx) => {
-          await tx.cartItems.deleteMany({
-            where: {
-              id: { in: cartItemIds },
-            },
-          });
-          let order = undefined;
-          if (dto.paymentMethod === PaymentMethod.CASH) {
-            const orderTemp = await tx.orders.create({
-              data: {
-                user_id: session.id,
-                full_name: dto.fullName,
-                phone_number: dto.phoneNumber,
-                address: dto.address,
-                payment_method: dto.paymentMethod,
-                status: ORDER_STATUS.PROCESSING as OrderStatus,
-              },
-            });
-            const orderItems = dto.items.map((item) => {
-              const { price, finalPrice } = productPriceMap.get(item.productId);
-              const totalPrice = Number(finalPrice) * item.quantity;
-              return {
-                order_id: orderTemp.id,
-                product_id: item.productId,
-                quantity: item.quantity,
-                price,
-                total_price: totalPrice,
-              };
-            });
-            await tx.orderItems.createMany({ data: orderItems });
-            const totalPrice = orderItems.reduce(
-              (acc, item) => acc + item.total_price,
-              0,
-            );
-            const updatedOrder = await tx.orders.update({
-              where: { id: orderTemp.id },
-              data: {
-                total_price: totalPrice,
-              },
-              include: {
-                OrderItems: {
-                  include: {
-                    product: true,
-                  },
-                },
-              },
-            });
-            order = await tx.orders.findFirst({
-              where: { id: orderTemp.id },
-              include: {
-                OrderItems: {
-                  include: {
-                    product: true,
-                  },
-                },
-              },
-            });
-            await this.emailService.sendOrderProcessing({
-              user: user,
-              order: {
-                ...order,
-                total_price: Number(order.total_price),
-                OrderItems: order.OrderItems.map((item) => ({
-                  ...item,
-                  price: Number(item.price),
-                  product: item.product,
-                })),
-              },
-            });
-            return updatedOrder;
-          } else {
-            const orderTemp = await tx.orders.create({
-              data: {
-                user: { connect: { id: session.id } },
-                full_name: dto.fullName,
-                phone_number: dto.phoneNumber,
-                payment_method: dto.paymentMethod,
-                address: dto.address,
-              },
-            });
-            order = orderTemp;
-          }
-          const orderItems = dto.items.map((item) => {
-            const { price, finalPrice } = productPriceMap.get(item.productId);
-            const totalPrice = Number(finalPrice) * item.quantity;
-            return {
-              order_id: order.id,
-              product_id: item.productId,
-              quantity: item.quantity,
-              price,
-              total_price: totalPrice,
-            };
-          });
-          await tx.orderItems.createMany({ data: orderItems });
-          const totalPrice = orderItems.reduce(
-            (acc, item) => acc + item.total_price,
-            0,
-          );
-          const updatedOrder = await tx.orders.update({
-            where: { id: order.id },
-            data: {
-              total_price: totalPrice,
-            },
-            include: {
-              OrderItems: {
-                include: {
-                  product: true,
-                },
-              },
-            },
-          });
-          return updatedOrder;
-        },
-        {
-          timeout: 20000,
-        },
+      const placeOrderCommand = new PlaceOrderCommand(
+        this.orderReceiver,
+        session,
+        dto
       );
+      
+      return await this.commandInvoker
+        .setCommand(placeOrderCommand)
+        .executeCommand();
     } catch (error) {
       console.log('Error:', error);
       throw new Error('Failed to create order');
     }
   }
+  
   async getListOrders(query: OrderPageOptionsDto) {
     const { take, order, sortBy } = query;
     const orders = await this.prisma.orders.findMany({
@@ -223,6 +100,7 @@ export class OrderService {
     });
     return { orders, itemCount };
   }
+  
   async getOrderProductsByUser(id: string, session: TUserSession) {
     const order = await this.prisma.orders.findUnique({
       where: { user_id: session.id, id: id },
@@ -236,6 +114,7 @@ export class OrderService {
     });
     return order;
   }
+  
   async getListOrdersByUser(query: OrderPageOptionsDto, session: TUserSession) {
     const { take, order, sortBy } = query;
     const orders = await this.prisma.orders.findMany({
@@ -268,128 +147,249 @@ export class OrderService {
     });
     return { orders, itemCount };
   }
+  
   async updateOrderStatus(id: string, dto: UpdateOrderStatusDto) {
+    try {
+      const updateStatusCommand = new UpdateOrderStatusCommand(
+        this.orderReceiver,
+        id,
+        dto
+      );
+      
+      return await this.commandInvoker
+        .setCommand(updateStatusCommand)
+        .executeCommand();
+    } catch (error) {
+      console.log(error);
+      throw new BadRequestException('Failed to update order status');
+    }
+  }
+  
+  async createReview(
+    session: TUserSession,
+    dto: CreateReviewDto,
+    id: string,
+    orderDetailId: string,
+    productId: string,
+  ) {
+    try {
+      const createReviewCommand = new CreateReviewCommand(
+        this.orderReceiver,
+        session,
+        dto,
+        id,
+        orderDetailId,
+        productId
+      );
+      
+      return await this.commandInvoker
+        .setCommand(createReviewCommand)
+        .executeCommand();
+    } catch (error) {
+      console.log('Error:', error);
+      throw new BadRequestException({
+        message: 'Failed to add rating review',
+      });
+    }
+  }
+  
+  async cancelOrder(id: string, session: TUserSession) {
+    try {
+      const cancelOrderCommand = new CancelOrderCommand(
+        this.orderReceiver,
+        id,
+        session
+      );
+      
+      return await this.commandInvoker
+        .setCommand(cancelOrderCommand)
+        .executeCommand();
+    } catch (error) {
+      console.log('Error:', error);
+      throw new BadRequestException('Failed to cancel order');
+    }
+  }
+  
+  async getOrderDetailsByAdmin(id: string) {
     const order = await this.prisma.orders.findUnique({
-      where: { id },
+      where: {
+        id: id,
+      },
+      include: {
+        OrderItems: {
+          include: {
+            product: true,
+          },
+        },
+        user: true,
+      },
     });
     if (!order) {
-      throw new NotFoundException('Order not found');
+      throw new BadRequestException('Order not found');
     }
-    if (
-      order.status === ORDER_STATUS.CANCELLED ||
-      order.status === ORDER_STATUS.REJECT
-    ) {
-      throw new BadRequestException('Order already cancelled or rejected');
+    return order;
+  }
+  
+  async getOrderHistory(session: TUserSession, dto: OrderPageOptionsDto) {
+    const orders = await this.prisma.orders.findMany({
+      where: { user_id: session.id, ...(dto.status && { status: dto.status }) },
+      include: {
+        OrderItems: {
+          include: {
+            product: true,
+          },
+        },
+      },
+      take: dto.take,
+      skip: dto.skip,
+      orderBy: { [dto.sortBy]: dto.order },
+    });
+    const itemCount = await this.prisma.orders.count({
+      where: { user_id: session.id, ...(dto.status && { status: dto.status }) },
+    });
+    return { orders, itemCount };
+  }
+  
+  // Keep Momo payment methods directly in the service
+  async createOrderPaymentUrlWithMomo(dto: CreatePaymentUrlDto) {
+    try {
+      const order = await this.prisma.orders.findUniqueOrThrow({
+        where: { id: dto.orderId },
+      });
+      const partnerCodeMomo = this.config.get<string>('partner_code_momo');
+      const accessKeyMomo = this.config.get<string>('access_key_momo');
+      const secretKeyMomo = this.config.get<string>('secret_key_momo');
+      const orderInfo = `Thanh toán đơn hàng ${order.id}`;
+      const redirectUrl = this.config.get<string>('redirect_url_payment');
+      const ipnUrl = this.config.get<string>('ipn_url_momo');
+      const requestId = partnerCodeMomo + new Date().getTime();
+      const orderId = dto.orderId;
+      const amount = Number(order.total_price);
+      const requestType = 'captureWallet';
+      const extraData = 'FastFood';
+
+      const rawSignature =
+        'accessKey=' +
+        accessKeyMomo +
+        '&amount=' +
+        amount +
+        '&extraData=' +
+        extraData +
+        '&ipnUrl=' +
+        ipnUrl +
+        '&orderId=' +
+        orderId +
+        '&orderInfo=' +
+        orderInfo +
+        '&partnerCode=' +
+        partnerCodeMomo +
+        '&redirectUrl=' +
+        redirectUrl +
+        '&requestId=' +
+        requestId +
+        '&requestType=' +
+        requestType;
+      const signature = crypto
+        .createHmac('sha256', secretKeyMomo)
+        .update(rawSignature)
+        .digest('hex');
+      const requestBody = JSON.stringify({
+        partnerCode: partnerCodeMomo,
+        accessKey: accessKeyMomo,
+        requestId: requestId,
+        amount: amount,
+        orderId: orderId,
+        orderInfo: orderInfo,
+        redirectUrl: redirectUrl,
+        ipnUrl: ipnUrl,
+        extraData: extraData,
+        requestType: requestType,
+        signature: signature,
+        lang: 'en',
+      });
+      const options = {
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(requestBody, 'utf8'),
+        },
+        method: 'POST',
+        url: 'https://test-payment.momo.vn/v2/gateway/api/create',
+        data: requestBody,
+      };
+      const response = await axios.default(options);
+      await this.prisma.orders.update({
+        where: {
+          id: dto.orderId,
+        },
+        data: {
+          payment_url: response.data.payUrl,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      throw new InternalServerErrorException(error.message);
     }
-    if (dto.status === ORDER_STATUS.REJECT) {
-      try {
-        return await this.prisma.$transaction(async (tx) => {
-          const updatedOrder = await tx.orders.update({
-            where: { id },
-            data: { status: dto.status },
-          });
-          const order = await tx.orders.findUnique({
-            where: { id: updatedOrder.id },
-            include: {
-              OrderItems: {
-                include: {
-                  product: true,
-                },
+  }
+  
+  async callbackWithMomo(req: Request, res: Response) {
+    try {
+      // check signature sẽ implement sau, tạm thời bỏ qua bước này
+      const { orderId, resultCode } = req.body;
+      //update order status and send email, sms
+      if (resultCode === 0) {
+        await this.prisma.orders.update({
+          where: { id: orderId as string },
+          data: {
+            status: ORDER_STATUS.PROCESSING as OrderStatus,
+          },
+        });
+        const order = await this.prisma.orders.findUnique({
+          where: { id: orderId as string },
+          include: {
+            OrderItems: {
+              include: {
+                product: true,
               },
             },
-          });
-          const user = await tx.users.findUnique({
-            where: { id: order.user_id },
-          });
-          await this.emailService.sendOrderRejected({
-            user,
-            order: {
-              ...order,
-              total_price: Number(order.total_price),
-              OrderItems: order.OrderItems.map((item) => ({
-                ...item,
-                price: Number(item.price),
-                product: item.product,
-              })),
-            },
-          });
-          return updatedOrder;
+          },
         });
-      } catch (error) {
-        console.log(error);
-        throw new BadRequestException('Failed to update order status');
-      }
-    }
-
-    if (dto.status === ORDER_STATUS.SUCCESS) {
-      const orderItems = await this.prisma.orderItems.findMany({
-        where: { order_id: id },
-      });
-
-      for (const orderItem of orderItems) {
-        const product = await this.prisma.products.findUnique({
-          where: { id: orderItem.product_id },
-          select: { sold_quantity: true },
+        const user = await this.prisma.users.findUnique({
+          where: { id: order.user_id },
         });
 
-        await this.prisma.products.update({
-          where: { id: orderItem.product_id },
-          data: { sold_quantity: product.sold_quantity + orderItem.quantity },
+        await this.emailService.sendOrderProcessing({
+          user,
+          order: {
+            ...order,
+            total_price: Number(order.total_price),
+            OrderItems: order.OrderItems.map((item) => ({
+              ...item,
+              price: Number(item.price),
+              product: item.product,
+            })),
+          },
+        });
+
+        return res.status(204).json({
+          resultCode: 0,
+          message: 'Success',
+        });
+      } else {
+        return res.status(204).json({
+          resultCode: 10,
+          message: 'Failed',
         });
       }
-      const order = await this.prisma.orders.findUnique({
-        where: { id: id },
-        include: {
-          OrderItems: {
-            include: {
-              product: true,
-            },
-          },
-        },
-      });
-      const user = await this.prisma.users.findUnique({
-        where: { id: order.user_id },
-      });
-      await this.emailService.sendOrderSuccess({
-        user,
-        order: {
-          ...order,
-          total_price: Number(order.total_price),
-          OrderItems: order.OrderItems.map((item) => ({
-            ...item,
-            price: Number(item.price),
-            product: item.product,
-          })),
-        },
-      });
-    } else if (dto.status === ORDER_STATUS.DELIVERED) {
-      const order = await this.prisma.orders.findUnique({
-        where: { id: id },
-        include: {
-          OrderItems: {
-            include: {
-              product: true,
-            },
-          },
-        },
-      });
-      const user = await this.prisma.users.findUnique({
-        where: { id: order.user_id },
-      });
-      await this.emailService.sendOrderDelivering({
-        user,
-        order: {
-          ...order,
-          total_price: Number(order.total_price),
-          OrderItems: order.OrderItems.map((item) => ({
-            ...item,
-            price: Number(item.price),
-            product: item.product,
-          })),
-        },
-      });
+    } catch (error) {
+      console.log('Error:', error);
+      const response = {
+        resultCode: 10,
+        message: 'Error',
+      };
+      return res.status(204).json(response);
     }
-    return await this.prisma.orders.update({
+  }
+}
       where: { id },
       data: { status: dto.status },
     });

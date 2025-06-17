@@ -7,6 +7,7 @@ import { StatisticModule } from '../statistic/statistic.module';
 import { ConfigModule } from '@nestjs/config';
 import { GeminiModule } from '../gen_ai/gemini.module';
 import { EmailModule } from '../email/email.module';
+import { CommandInvoker, OrderReceiver } from './commands';
 
 @Module({
   imports: [
@@ -17,7 +18,7 @@ import { EmailModule } from '../email/email.module';
     GeminiModule,
     EmailModule,
   ],
-  providers: [OrderService],
+  providers: [OrderService, CommandInvoker, OrderReceiver],
   controllers: [OrdersController],
   exports: [OrderService],
 })
