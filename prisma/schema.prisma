@@ -1,0 +1,213 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+
+  // directUrl = env("DIRECT_URL")
+}
+
+model Users {
+  id                  String          @id @default(uuid())
+  email               String?         @unique @db.VarChar(100)
+  password            String
+  full_name           String
+  phone               String?         @db.VarChar(20)
+  birthday            DateTime
+  gender              Gender
+  role                Role
+  verification        Vertifications?
+  avatar_url          String
+  code_reset_password String?         @db.VarChar(6)
+  refresh_token       String?         @db.VarChar(255)
+  is_disable          Boolean         @default(false)
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  Addresses           Address[]
+  Orders              Orders[]
+  Carts               Carts?
+  Reviews             Reviews[]
+}
+
+model Vertifications {
+  id            Int     @id @default(autoincrement())
+  user_id       String  @unique
+  user          Users   @relation(fields: [user_id], references: [id])
+  verified_code String
+  is_active     Boolean @default(false)
+}
+
+model Products {
+  id                 String        @id @default(uuid())
+  title              String        @db.VarChar(255)
+  category_id        String
+  price              Decimal
+  description        String        @db.Text
+  final_price        Decimal?
+  discountPercentage Int?
+  discountDate       DateTime?
+  avg_stars          Decimal       @default(0)
+  total_reviews      Int           @default(0)
+  sold_quantity      Int           @default(0)
+  image_url          String[]      @default([])
+  status             ProductStatus @default(ACTIVE)
+  created_at         DateTime      @default(now())
+  updated_at         DateTime      @updatedAt
+  Category           Category      @relation(fields: [category_id], references: [id])
+  OrderItems         OrderItems[]
+  CartItems          CartItems[]
+  Reviews            Reviews[]
+}
+
+model Category {
+  id         String     @id @default(uuid())
+  name       String     @unique
+  is_disable Boolean    @default(false)
+  Products   Products[]
+}
+
+model Orders {
+  id             String        @id @default(uuid())
+  user_id        String
+  user           Users         @relation(fields: [user_id], references: [id])
+  status         OrderStatus   @default(PENDING)
+  review_state   ReviewState   @default(UNREVIEW)
+  total_price    Decimal       @default(0)
+  full_name      String
+  phone_number   String
+  payment_method PaymentMethod
+  payment_url    String?
+  address        String
+  created_at     DateTime      @default(now())
+  updated_at     DateTime      @updatedAt
+  OrderItems     OrderItems[]
+}
+
+model OrderItems {
+  id            String      @id @default(uuid())
+  order_id      String
+  order         Orders      @relation(fields: [order_id], references: [id])
+  product_id    String
+  product       Products    @relation(fields: [product_id], references: [id])
+  quantity      Int
+  price         Decimal
+  total_price   Decimal
+  review_status ReviewState @default(UNREVIEW)
+  review_id     Int?
+  review        Reviews?
+}
+
+model Carts {
+  id         Int         @id @default(autoincrement())
+  user_id    String      @unique()
+  user       Users       @relation(fields: [user_id], references: [id])
+  created_at DateTime    @default(now())
+  CartItems  CartItems[]
+}
+
+model CartItems {
+  id         Int      @id @default(autoincrement())
+  cart_id    Int
+  cart       Carts    @relation(fields: [cart_id], references: [id])
+  product_id String
+  product    Products @relation(fields: [product_id], references: [id])
+  quantity   Int
+  created_at DateTime @default(now())
+}
+
+model Reviews {
+  id              Int           @id @default(autoincrement())
+  user_id         String
+  user            Users         @relation(fields: [user_id], references: [id])
+  product_id      String
+  product         Products      @relation(fields: [product_id], references: [id])
+  title           String
+  rating          Decimal
+  description     String
+  state           ReviewState   @default(UNREVIEW)
+  type            ReviewType
+  is_hidden       Boolean       @default(false)
+  reply_review_id Int?
+  created_at      DateTime      @default(now())
+  ReplyReviews    ReplyReviews?
+  order_item_id   String        @unique
+  OrderItem       OrderItems    @relation(fields: [order_item_id], references: [id])
+}
+
+model ReplyReviews {
+  id         Int      @id @default(autoincrement())
+  review_id  Int      @unique
+  review     Reviews  @relation(fields: [review_id], references: [id])
+  reply      String
+  created_at DateTime @default(now())
+}
+
+model Address {
+  id           Int    @id @default(autoincrement())
+  user_id      String
+  full_name    String
+  phone_number String
+  address      String
+  Users        Users? @relation(fields: [user_id], references: [id])
+}
+
+model Statistic {
+  id            String  @id
+  day           Int
+  month         Int
+  year          Int
+  total_order   Int
+  total_revenue Decimal
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  DELIVERED
+  CANCELLED
+  SUCCESS
+  REJECT
+}
+
+enum ProductStatus {
+  INACTIVE
+  ACTIVE
+}
+
+enum ReviewState {
+  UNREVIEW
+  REVIEWED
+  REPLIED
+}
+
+enum PaymentMethod {
+  CASH
+  MOMO
+}
+
+enum ReviewType {
+  POSITIVE
+  NEGATIVE
+  TOXIC
+}
