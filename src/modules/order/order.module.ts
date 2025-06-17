@@ -7,6 +7,7 @@ import { StatisticModule } from '../statistic/statistic.module';
 import { ConfigModule } from '@nestjs/config';
 import { GeminiModule } from '../gen_ai/gemini.module';
 import { EmailModule } from '../email/email.module';
+import { OrderModel } from './models/order.model';
 
 @Module({
   imports: [
