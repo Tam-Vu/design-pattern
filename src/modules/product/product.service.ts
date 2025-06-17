@@ -8,6 +8,9 @@ import { uploadFilesFromFirebase } from 'src/libs/firebase/upload';
 import { EUploadFolder } from 'src/constants/constant';
 import { deleteFilesFromFirebase } from 'src/libs/firebase/delete';
 import { ProductQuery } from './query/product.query';
+import { ProductIterator } from './iterators/product.iterator';
+import { Iterator } from '../../common/interfaces/iterator.interface';
+import { Products } from '@prisma/client';
 
 @Injectable()
 export class ProductsService {
@@ -377,5 +380,17 @@ export class ProductsService {
       throw new BadRequestException('Product not found');
     }
     return existingProduct;
+  }
+
+  createIterator(products: Products[]): Iterator<Products> {
+    return new ProductIterator(products);
+  }
+
+  async getAllProductsWithIterator(productQuery: ProductQuery, categoryStatus?: boolean) {
+    const { products, itemCount } = await this.getAllProducts(productQuery, categoryStatus);
+    return {
+      iterator: this.createIterator(products),
+      itemCount
+    };
   }
 }

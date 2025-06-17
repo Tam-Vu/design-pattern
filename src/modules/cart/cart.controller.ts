@@ -105,4 +105,27 @@ export class CartController {
     await this.chatbotService.updateEntityOrderId(result.id);
     return result;
   }
+
+  @Get('iterator')
+  async getAllCartItemWithIterator(
+    @UserSession() session: TUserSession,
+    @Query() getCartDto: GetCartDto,
+  ) {
+    const { iterator, itemCount } = await this.cartService.getAllCartItemsWithIterator(
+      session,
+      getCartDto,
+    );
+
+    // Example of using the iterator
+    const items = [];
+    while (iterator.hasNext()) {
+      items.push(iterator.next());
+    }
+
+    const meta = new PageResponseMetaDto({
+      pageOptionsDto: getCartDto,
+      itemCount: itemCount,
+    });
+    return new PageResponseDto(items, meta);
+  }
 }

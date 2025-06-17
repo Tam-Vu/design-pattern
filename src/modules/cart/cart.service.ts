@@ -6,6 +6,9 @@ import { AddToCartDto } from './dto/add_to_cart.dto';
 import { UpdateCartDto } from './dto/update_cart.dto';
 import { CheckOutDto } from './dto/check_out.dto';
 import { OrderService } from '../order/order.service';
+import { CartItemIterator } from './iterators/cart-item.iterator';
+import { Iterator } from '../../common/interfaces/iterator.interface';
+import { CartItems } from '@prisma/client';
 
 @Injectable()
 export class CartsService {
@@ -208,5 +211,17 @@ export class CartsService {
       console.log('Error:', error);
       throw new Error('Failed to checkout cart');
     }
+  }
+
+  createIterator(cartItems: CartItems[]): Iterator<CartItems> {
+    return new CartItemIterator(cartItems);
+  }
+
+  async getAllCartItemsWithIterator(session: TUserSession, getCartDto: GetCartDto) {
+    const { cartItems, itemCount } = await this.getAllCartItems(session, getCartDto);
+    return {
+      iterator: this.createIterator(cartItems),
+      itemCount
+    };
   }
 }
