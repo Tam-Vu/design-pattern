@@ -9,25 +9,40 @@ import { EUploadFolder, USER_IMAGE_URL } from 'src/constants/constant';
 import { uploadFilesFromFirebase } from 'src/libs/firebase/upload';
 import { hashedPassword } from '../auth/services/signUp/hash-password';
 import { UpdateUserProfileByAdmin } from './dto/update_user_profile_by_admin.dto';
+import { UserFactory } from './models/user-factory';
+import { ApplicationUser } from './models/application-user.abstract';
 
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
+
   async createNewUser(body: CreateUserDto) {
     if (await isEmailExist(body.email)) {
       throw new BadRequestException('Email already exists', {
         cause: new Error('User already exist'),
       });
     }
+
     const hashPassword = await hashedPassword(body.password);
+
+    const userModel = UserFactory.createUser({
+      email: body.email,
+      password: hashPassword,
+      fullName: body.fullName,
+      role: body.role,
+      birthday: new Date(body.birthday),
+      gender: body.gender,
+      avatarUrl: USER_IMAGE_URL,
+    });
+
     const newUser = await this.prisma.users.create({
       data: {
-        email: body.email,
+        email: userModel.email,
         password: hashPassword,
-        full_name: body.fullName,
-        role: body.role,
+        full_name: userModel.fullName,
+        role: userModel.role,
         birthday: new Date(body.birthday),
-        gender: body.gender,
+        gender: userModel.gender,
         avatar_url: USER_IMAGE_URL,
         verification: {
           create: {
@@ -37,6 +52,7 @@ export class UsersService {
         },
       },
     });
+
     if (newUser.role === 'CUSTOMER') {
       await this.prisma.carts.create({
         data: {
@@ -46,7 +62,9 @@ export class UsersService {
     }
     return newUser;
   }
+
   async getAllUsers(query: GetAllUserDto, isDisabled?: boolean) {
+    // Existing implementation
     const users = await this.prisma.users.findMany({
       where: {
         ...(query.role && { role: query.role }),
@@ -64,12 +82,36 @@ export class UsersService {
     });
     return { users, itemCount };
   }
+
   async findUserById(id: string) {
     const user = await this.prisma.users.findUnique({
       where: { id: id },
     });
-    return user;
+
+    if (!user) {
+      return null;
+    }
+
+    const userModel = UserFactory.createUser({
+      id: user.id,
+      email: user.email,
+      fullName: user.full_name,
+      role: user.role,
+      password: user.password,
+      gender: user.gender,
+      birthday: user.birthday,
+      avatarUrl: user.avatar_url,
+      phone: user.phone,
+      isDisabled: user.is_disable,
+      createdAt: user.created_at,
+      updatedAt: user.updated_at,
+    });
+
+    const decoratedUser = UserFactory.decorateUser(userModel);
+
+    return decoratedUser;
   }
+
   async disableUserById(id: string) {
     const user = await this.prisma.users.update({
       where: { id: id },
@@ -79,6 +121,7 @@ export class UsersService {
     });
     return user;
   }
+
   async updateUserProfile(
     session: TUserSession,
     dto: UpdateUserProfileDto,
@@ -96,20 +139,24 @@ export class UsersService {
         }
         imageUrls = uploadImagesData.urls;
       }
+
       const user = await this.prisma.users.findUnique({
         where: { id: session.id },
       });
+
       if (!user) {
         throw new BadRequestException('User not found', {
           cause: new Error('User not found'),
         });
       }
+
       const { birthday, fullName, ...data } = dto;
       const filteredData = Object.fromEntries(
         Object.entries(data).filter(
           ([value]) => value !== null && value !== '',
         ),
       );
+
       const updatedUser = await this.prisma.users.update({
         where: { id: session.id },
         data: {
@@ -127,6 +174,7 @@ export class UsersService {
       });
     }
   }
+
   async enableUserById(id: string) {
     const user = await this.prisma.users.findUnique({
       where: { id: id },
@@ -144,6 +192,7 @@ export class UsersService {
     });
     return updatedUser;
   }
+
   async searchUser(keyword: string, query: GetAllUserDto, disable: boolean) {
     const users = await this.prisma.users.findMany({
       where: {
@@ -170,6 +219,7 @@ export class UsersService {
     });
     return { users, itemCount };
   }
+
   async updateUserByAdmin(
     body: UpdateUserProfileByAdmin,
     image?: Express.Multer.File,
