@@ -10,6 +10,8 @@ import { UsersModule } from './user/user.module';
 import { AddressModule } from './address/address.module';
 import { StatisticModule } from './statistic/statistic.module';
 import { ChatbotModule } from './chatbot/chatbot.module';
+import { CatalogModule } from './catalog/catalog.module';
+
 const Modules = [
   EmailModule,
   UsersModule,
@@ -23,6 +25,7 @@ const Modules = [
   AddressModule,
   StatisticModule,
   ChatbotModule,
+  CatalogModule,
 ];
 
 export default Modules;
