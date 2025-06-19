@@ -378,4 +378,44 @@ export class ProductsService {
     }
     return existingProduct;
   }
+
+  async hasEnoughStock(cartItems: any[]): Promise<boolean> {
+    try {
+      // For this implementation, we'll assume all products are in stock
+      // In a real system, you would check against actual inventory
+      const productIds = cartItems.map((item) => item.product_id);
+      const products = await this.prismaService.products.findMany({
+        where: { id: { in: productIds }, status: 'ACTIVE' },
+      });
+
+      // Check if all products are active and available
+      if (products.length !== productIds.length) {
+        return false;
+      }
+
+      // Additional stock checks could be implemented here
+      return true;
+    } catch (error) {
+      console.log('Error checking stock:', error);
+      return false;
+    }
+  }
+
+  async decreaseStock(cartItems: any[]): Promise<boolean> {
+    try {
+      // Update the sold quantity for each product
+      for (const item of cartItems) {
+        await this.prismaService.products.update({
+          where: { id: item.product_id },
+          data: {
+            sold_quantity: { increment: item.quantity },
+          },
+        });
+      }
+      return true;
+    } catch (error) {
+      console.log('Error decreasing stock:', error);
+      return false;
+    }
+  }
 }

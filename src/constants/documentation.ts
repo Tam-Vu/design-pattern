@@ -12,5 +12,6 @@ export const DOCUMENTATION = {
     CARTS: 'CART',
     CART_ITEMS: 'CART_ITEMS',
     COMMENT: 'COMMENT',
+    CHECKOUT: 'Checkout',
   },
 };

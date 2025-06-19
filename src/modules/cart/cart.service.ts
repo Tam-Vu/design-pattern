@@ -5,13 +5,13 @@ import { GetCartDto } from './dto/get_cart.dto';
 import { AddToCartDto } from './dto/add_to_cart.dto';
 import { UpdateCartDto } from './dto/update_cart.dto';
 import { CheckOutDto } from './dto/check_out.dto';
-import { OrderService } from '../order/order.service';
+import { CheckoutFacade } from '../checkout/checkout.facade';
 
 @Injectable()
 export class CartsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly orderService: OrderService,
+    private readonly checkoutFacade: CheckoutFacade,
   ) {}
   async createCart(session: TUserSession) {
     const existingCart = await this.prisma.carts.findUnique({
@@ -178,35 +178,12 @@ export class CartsService {
     });
   }
   async checkoutCart(session: TUserSession, dto: CheckOutDto) {
-    const cart = await this.prisma.carts.findFirst({
-      where: { user_id: session.id },
-    });
-    if (!cart) {
-      throw new BadRequestException('Cart not found');
-    }
-    const cartItems = await this.prisma.cartItems.findMany({
-      where: { cart_id: cart.id },
-      include: { product: true },
-    });
-    if (cartItems.length === 0) {
-      throw new BadRequestException('Cart is empty');
-    }
     try {
-      const order = await this.orderService.createOrder(session, {
-        items: cartItems.map((item) => ({
-          productId: item.product.id,
-          quantity: item.quantity,
-        })),
-        fullName: dto.fullName,
-        phoneNumber: dto.phone,
-        address: dto.shippingAddress,
-        paymentMethod: dto.paymentMethod,
-      });
-      await this.clearCart(session);
+      const order = await this.checkoutFacade.placeOrder(session, dto);
       return order;
     } catch (error) {
       console.log('Error:', error);
-      throw new Error('Failed to checkout cart');
+      throw new BadRequestException('Failed to checkout cart: ' + error.message);
     }
   }
 }

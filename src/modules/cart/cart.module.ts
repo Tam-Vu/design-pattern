@@ -7,6 +7,7 @@ import { OrderService } from '../order/order.service';
 import { ChatbotModule } from '../chatbot/chatbot.module';
 import { GeminiModule } from '../gen_ai/gemini.module';
 import { EmailModule } from '../email/email.module';
+import { CheckoutModule } from '../checkout/checkout.module';
 
 @Module({
   providers: [CartsService, OrderService],
@@ -17,6 +18,7 @@ import { EmailModule } from '../email/email.module';
     ChatbotModule,
     GeminiModule,
     EmailModule,
+    CheckoutModule,
   ],
   exports: [CartsService],
 })

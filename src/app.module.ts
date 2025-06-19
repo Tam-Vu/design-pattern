@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import configuration from './config/configuration';
 import Modules from './modules';
 import { PrismaModule } from './modules/prisma/prisma.module';
+import { CheckoutModule } from './modules/checkout/checkout.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -11,6 +12,7 @@ import { PrismaModule } from './modules/prisma/prisma.module';
       load: [configuration],
     }),
     PrismaModule,
+    CheckoutModule,
     ...Modules,
   ],
   controllers: [],
